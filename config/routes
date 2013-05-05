@@ -1,0 +1,10 @@
+/static StaticR Static getStatic
+
+/favicon.ico FaviconR GET
+/robots.txt RobotsR GET
+
+/ HomeR GET POST
+
+/games GamesR POST GET
+
+/games/#Int GamesIdR GET POST
