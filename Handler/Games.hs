@@ -19,7 +19,7 @@ instance Aeson.FromJSON PostGameId
 getGamesIdR :: Int -> Handler RepJson
 getGamesIdR gameId = do
   yesod <- getYesod
-  allGames <- liftIO $ takeMVar $ games yesod
+  allGames <- liftIO $ readMVar $ games yesod
   let g = allGames Map.! gameId
   jsonToRepJson g
 
@@ -48,6 +48,6 @@ postGamesR = do
 getGamesR :: Handler RepJson
 getGamesR = do
   yesod <- getYesod
-  allGames <- liftIO $ takeMVar $ games yesod
+  allGames <- liftIO $ readMVar $ games yesod
   jsonToRepJson $ Aeson.object (Import.map (\(id,g) -> pack (show id) .= g) (Map.toList allGames)) 
    
