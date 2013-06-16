@@ -1,0 +1,3 @@
+This repository contains an attempt at modeling the Dominion card game as a restful web service.
+
+The goal of this attempt is to better understand functional programming in general and Haskell in particular.
