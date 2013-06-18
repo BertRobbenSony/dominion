@@ -13,8 +13,6 @@ module Model.Dominion (
   liftGame,
   cardsChoice,
   decision,
-  cardsFromHand,
-  maxCardsFromHand,
   attack
 ) where
 
@@ -81,21 +79,11 @@ updateBuys = undefined
 liftGame :: Game Card a -> GamePlay a
 liftGame = undefined
 
-cardsChoice :: String -> Player -> ([Card] -> GamePlay (Maybe String)) -> GamePlay [Card]
+cardsChoice :: String -> [Card] -> Player -> ([Card] -> Maybe String) -> GamePlay [Card]
 cardsChoice = undefined
 
 decision :: String -> Player -> GamePlay Bool
 decision = undefined
-
-cardsFromHand :: Player -> [Card] -> GamePlay (Maybe String)
-cardsFromHand p cards = do
-    h <- liftGame $ hand p
-    return $ if (cards `isSubset` h) then Nothing else Just "Please choose cards from hand"
-
-maxCardsFromHand :: Player -> Int -> [Card] -> GamePlay (Maybe String)
-maxCardsFromHand p n cards = if length cards > n 
-    then return $ Just ("Please choose up to " ++ (show n) ++ " cards.")
-    else cardsFromHand p cards
 
 attack :: (Player -> GamePlay a) -> GamePlay [a]
 attack = undefined
