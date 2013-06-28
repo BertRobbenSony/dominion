@@ -225,7 +225,18 @@ thief = card "Thief" 4 noPoints thiefGamePlay
         gainOrTrash thief c = do
           gain <- decision ("Do you want to gain a " ++ (show c) ++ " ?") thief
           liftGame $ if gain then discardCard c thief else trashCard c
+
           
-          
+-- Throne Room  Action  $4  Choose an Action card in your hand. Play it twice.
+throneRoom :: Card
+throneRoom = card "Throne Room" 4 noPoints throneRoomGamePlay
+  where throneRoomGamePlay p = do
+          currentHand <- liftGame $ hand p
+          cards <- cardsChoice "Choose action to play twice" currentHand p (upTo 1)
+          if cards == [] then return () else playTwice (head cards) p
+        playTwice c p = do
+          liftGame $ putCardOnTable c
+          cardGamePlay c p
+          cardGamePlay c p
           
  

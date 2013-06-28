@@ -25,8 +25,9 @@ module Model.Game (
   takeCardFromTable,
   boardCardValue,
   trashCard,
-  putCardOnTopOfDeck
-
+  putCardOnTopOfDeck,
+  putCardOnTable
+  
 ) where
 
 import Prelude
@@ -101,6 +102,9 @@ takeCardFromHand c p = updatePlayer p $ updatePlayerHand (without c)
 
 putCardInHand :: c -> Player -> Game c ()
 putCardInHand c p = updatePlayer p $ updatePlayerHand (c:)
+
+putCardOnTable :: c -> Game c ()
+putCardOnTable c = Game (\gs -> ((), mapTable (c:) gs))
 
 discardCard :: c -> Player -> Game c ()
 discardCard c p = updatePlayer p $ updatePlayerDiscard (c:)

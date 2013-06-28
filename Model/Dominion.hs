@@ -3,6 +3,7 @@ module Model.Dominion (
   Card,
   card,
   cardValue,
+  cardGamePlay,
   GamePlay,
   currentActions,
   currentMoney,
@@ -30,7 +31,7 @@ data Card = Card {
   cardName :: String, 
   cardValue :: Int, 
   victoryPoints :: [Card] -> Int, 
-  cardActionPlay :: Player -> GamePlay () }
+  cardGamePlay :: Player -> GamePlay () }
 
 card :: String -> Int -> ([Card] -> Int) -> (Player -> GamePlay ()) -> Card
 card = Card
@@ -45,10 +46,40 @@ instance Eq Card where
 data CardType = Victory | Treasure | Action | Reaction | Attack
 
 ------------------------------
+data DominionGame = DominionGame
 
+data PlayState = CardChoice String Player [Card] ([Card] -> Either DominionGame String) |
+                 Decision String Player (Bool -> Either DominionGame String) | 
+                 GameOver [(Player, Int, Int)]
+
+play :: DominionGame -> PlayState
+play = undefined
+
+players :: DominionGame -> [Player]
+players = undefined
+
+playerHand :: Player -> DominionGame -> [Card]
+playerHand = undefined
+
+---------------------------------
 newtype GamePlay a = GamePlay { playGame :: GameState -> (a,GameState) }
 
 data GameState = GameState { actions :: Int, money :: Int, buy :: Int, game :: Game Card () }
+
+type NextState a = GameState -> (a, GameState)
+
+data DominionPlay a = GamePlay (NextState a) |
+                      Decision String Player (Bool -> (Either (NextState Bool) String)) |
+                      CardChoice String [Card] Player ([Card] -> (Either (NextState [Card]) String))                 
+
+cardsChoice :: String -> [Card] -> Player -> ([Card] -> Maybe String) -> GamePlay [Card]
+
+instance Monad DominionPlay where
+  return a = GamePlay (\gs -> (a, gs))
+  (GamePlay gp) >>= f  = GamePlay (\gs -> let (a,gs') = gp gs
+                          in playGame (f a) gs')
+  (Decision msg p dpf) >>= f = Decision msg p (\b -> fmap (\dp -> dp >>= f) (dpf b))
+  (CardChoice msg cards p cf) >>= f = CardChoice msg cards p (\cs -> fmap (\p -> p >>= f) (cf cs))
 
 instance Monad GamePlay where
   return a = GamePlay (\gs -> (a, gs))
@@ -80,7 +111,7 @@ liftGame :: Game Card a -> GamePlay a
 liftGame = undefined
 
 cardsChoice :: String -> [Card] -> Player -> ([Card] -> Maybe String) -> GamePlay [Card]
-cardsChoice = undefined
+cardsChoice msg cards p validateCards = GamePlay (\gs -> CardChoice msg cards p
 
 decision :: String -> Player -> GamePlay Bool
 decision = undefined
