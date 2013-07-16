@@ -2,42 +2,18 @@ module Model.Playing
 
 where
 
-import Model.Game
+import Model.Dominion
+import Model.DominionState
+import Model.Card
 
-data GameView = GameView
+playTurn :: GamePlay ()
+playTurn = do
+  playActions
+  buyCards
+  cleanUp
 
-myHand :: GameView -> [Card]
-myHand = undefined
+gotoNextPlayer :: GamePlay ()
+gotoNextPlayer = do
+  ps <- players
 
-table :: GameView -> [Card]
-table = undefined
-
-actions :: GameView -> Int
-actions = undefined
-
-myOpponents :: GameView -> [Opponent]
-myOpponents = undefined
-
-opponentHand :: Opponent -> Int
-opponentHand = undefined
-
-opponentName :: Opponent -> String
-opponentName = undefined
-
-buys :: GameView -> Int
-buys = undefined
-
-money :: GameView -> Int
-money = undefined
-
-chooseCards :: [Card] -> GameView -> Either String GameView
-chooseCards = undefined
-
-decide :: Bool -> GameView -> Either String GameView
-decide = undefined
-
-data GameState = CardInput String [Card] | DecisionInput String | Waiting Opponent | GameOver [(String, Int, Int)]
-
-currentState :: GameView -> GameState
-currentState = undefined
   

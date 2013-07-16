@@ -6,7 +6,7 @@ module Model.Game (
   Player,
   playerName,
   
-  Game,  
+  GameState,  
   
   board,
   players,
@@ -61,97 +61,80 @@ type PlayerStates c = [(Player,PlayerState c)]
 
 data GameState c = GameState { 
   table :: [c],
-  boardCards :: Board c, 
+  board :: Board c, 
   playerStates :: PlayerStates c} deriving (Generic)
 
-mapTable :: ([c] -> [c]) -> GameState c -> GameState c
-mapTable f gs = GameState (f (table gs)) (boardCards gs) (playerStates gs)
+updateTable :: ([c] -> [c]) -> GameState c -> GameState c
+updateTable f gs = GameState (f (table gs)) (board gs) (playerStates gs)
 
-mapBoard :: (Board c -> Board c) -> GameState c -> GameState c
-mapBoard f gs = GameState (table gs) (f (boardCards gs)) (playerStates gs)
+updateBoard :: (Board c -> Board c) -> GameState c -> GameState c
+updateBoard f gs = GameState (table gs) (f (board gs)) (playerStates gs)
 
-mapPlayerState ::  Player -> (PlayerState c -> PlayerState c) -> GameState c -> GameState c
-mapPlayerState p f gs = GameState (table gs) (boardCards gs) (updateList p f (playerStates gs))
+updatePlayer ::  Player -> (PlayerState c -> PlayerState c) -> GameState c -> GameState c
+updatePlayer p f gs = GameState (table gs) (board gs) (updateList p f (playerStates gs))
 
 -----
 
-newtype Game c a = Game { playGame :: GameState c -> (a, GameState c) }
+players :: GameState c -> [Player]
+players gs = map fst (playerStates gs)
 
-instance Monad (Game c) where
-  return a = Game (\gs -> (a, gs))
-  g >>= f  = Game (\gs -> let (a,gs') = playGame g gs
-                          in playGame (f a) gs')
-  
-players :: Game c [Player]
-players = Game (\gs -> (map fst (playerStates gs), gs))
+hand :: Player -> GameState c -> [c]
+hand p gs = playerHand $ getFromList p (playerStates gs)
 
-hand :: Player -> Game c [c]
-hand p = Game (\gs -> (playerHand $ getFromList p (playerStates gs), gs))
+trashCard :: c -> GameState c -> GameState c
+trashCard _ gs = gs
 
-board :: Game c (Board c)
-board = Game (\gs -> (boardCards gs, gs))
+drawSize :: Player -> GameState c -> Int
+drawSize p gs = length (playerDraw $ getFromList p (playerStates gs))
 
-trashCard :: c -> Game c ()
-trashCard _ = return ()
-
-drawSize :: Player -> Game c Int
-drawSize p = Game (\gs -> (length (playerDraw $ getFromList p (playerStates gs)), gs))
-
-takeCardFromHand :: (Eq c) => c -> Player -> Game c ()
+takeCardFromHand :: (Eq c) => c -> Player -> GameState c -> GameState c
 takeCardFromHand c p = updatePlayer p $ updatePlayerHand (without c)
 
-putCardInHand :: c -> Player -> Game c ()
+putCardInHand :: c -> Player -> GameState c -> GameState c
 putCardInHand c p = updatePlayer p $ updatePlayerHand (c:)
 
-putCardOnTable :: c -> Game c ()
-putCardOnTable c = Game (\gs -> ((), mapTable (c:) gs))
+putCardOnTable :: c -> GameState c -> GameState c
+putCardOnTable c = updateTable (c:)
 
-discardCard :: c -> Player -> Game c ()
+discardCard :: c -> Player -> GameState c -> GameState c
 discardCard c p = updatePlayer p $ updatePlayerDiscard (c:)
 
-discardCardFromHand :: (Eq c) => c -> Player -> Game c ()
-discardCardFromHand c p = (takeCardFromHand c p) >> (discardCard c p)
+discardCardFromHand :: (Eq c) => c -> Player -> GameState c -> GameState c
+discardCardFromHand c p = (takeCardFromHand c p) . (discardCard c p)
 
-drawCard :: Player -> Game c (Maybe c)
-drawCard p = Game (\gs -> let 
+drawCard :: Player -> GameState c -> (Maybe c, GameState c)
+drawCard p gs = let 
    ps = getFromList p (playerStates gs)
    (mc,ps') = playerDrawCard ps
-   in (mc, mapPlayerState p (\_ -> ps') gs))   
+   in (mc, updatePlayer p (\_ -> ps') gs)   
 
-drawCards :: Player -> Int -> Game c [c]
-drawCards p n = Game (\gs -> let
+drawCards :: Player -> Int -> GameState c -> ([c], GameState c)
+drawCards p n gs = let
    ps = getFromList p (playerStates gs)
    (cs,ps') = playerDrawCards n ps
-   in (cs, mapPlayerState p (\_ -> ps') gs))   
+   in (cs, updatePlayer p (\_ -> ps') gs)   
 
-drawCardAndPutInHand :: Player -> Game c ()
-drawCardAndPutInHand p = do
-                          c <- drawCard p
-                          tryAndPutCardInHand c p
+drawCardAndPutInHand :: Player -> GameState c -> GameState c
+drawCardAndPutInHand p gs = case drawCard p gs of
+  (Nothing, gs') -> gs'
+  (Just c, gs') -> putCardInHand c p gs'
                           
-tryAndPutCardInHand :: Maybe c -> Player -> Game c ()
-tryAndPutCardInHand Nothing _ = return ()
-tryAndPutCardInHand (Just c) p = putCardInHand c p
+takeCardFromBoard :: (Eq c) => c -> GameState c -> GameState c
+takeCardFromBoard c = updateBoard (updateList c (\n->n-1)) 
 
-takeCardFromBoard :: (Eq c) => c -> Game c ()
-takeCardFromBoard c = Game (\gs -> ((), mapBoard (updateList c (\n->n-1)) gs)) 
+takeCardFromTable :: (Eq c) => c -> GameState c -> GameState c
+takeCardFromTable c = updateTable (without c)
 
-takeCardFromTable :: (Eq c) => c -> Game c ()
-takeCardFromTable c = Game (\gs -> ((), mapTable (without c) gs))
-
-putCardOnTopOfDeck :: c -> Player -> Game c ()
+putCardOnTopOfDeck :: c -> Player -> GameState c -> GameState c
 putCardOnTopOfDeck c p = updatePlayer p (updatePlayerDraw (c:)) 
-
-updatePlayer :: Player -> (PlayerState c -> PlayerState c) -> Game c ()
-updatePlayer p psf = Game (\gs -> ((), mapPlayerState p psf gs))
 
 takeFromBoard :: (Eq c) => c -> Board c -> Board c
 takeFromBoard c1 bo@((c2,n):b) = if c1 == c2 
   then if n == 0 then bo else (c2,n-1):b
   else (c2,n) : (takeFromBoard c1 b)
 
-boardCardValue :: (Eq c) => c -> Game c (Maybe Int)
-boardCardValue c = Game (\gs -> (lookup c (boardCards gs), gs))
+boardCardValue :: (Eq c) => c -> GameState c -> Maybe Int
+boardCardValue c gs = lookup c (board gs)
 
 ---
 --- Player state changes
