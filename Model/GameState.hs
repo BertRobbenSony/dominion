@@ -1,42 +1,113 @@
 {-# LANGUAGE DeriveGeneric,TypeSynonymInstances,FlexibleInstances #-}
 module Model.GameState (
+
+  PlayerState (..),
+  updatePlayerHand,
+  updatePlayerDraw,
+  updatePlayerDiscard,
+
+  Board,
+  getFromList,
+
+  GameState,
+  initialState,
+  board,
+  updateBoard,
+  actions,
+  updateActions,
+  money,
+  updateMoney,
+  buy,
+  updateBuy,
+  players,
+  playerState,
+  gotoNextPlayer,
+  updatePlayerState,
+  table, 
+  updateTable
 ) where
 
 import Prelude
 import Data.Text (Text, unpack)
 import GHC.Generics
-import Data.Aeson as Aeson
-import Control.Monad
-import Model.Game
+import Model.Player
 
-data UserInput = UserInput String
+--
+-- Board
+-- 
+type Board c = [(c, Int)]
 
--- choose :: [Card] -> Either String (GamePlay [Card])
--- decide :: Bool -> Either String (GamePlay [Card])
+----------------------------
+  
+data PlayerState c = PlayerState { 
+  playerHand :: [c], 
+  playerDraw :: [c], 
+  playerDiscard :: [c] } deriving (Generic)
 
----------------------------------
-newtype GamePlay a b = GamePlay { playGame :: GameState a -> (b,GameState a) }
+data GameState c = GameState { 
+  actions :: Int, 
+  money :: Int, 
+  buy :: Int, 
+  table :: [c],
+  board :: Board c, 
+  playerStates :: [(Player,PlayerState c)] } deriving (Generic)
 
-data GameState a = GameState a (Maybe (String -> GameState a -> GameState a))
+updateTable :: ([c] -> [c]) -> GameState c -> GameState c
+updateTable f gs = GameState (actions gs) (money gs) (buy gs) (f (table gs)) (board gs) (playerStates gs)
 
-instance Monad (GamePlay a) where
-  return a = GamePlay (\gs -> (a, gs))
-  g >>= f  = GamePlay (\gs -> let (a,gs') = playGame g gs
-                          in playGame (f a) gs')
+updateBoard :: (Board c -> Board c) -> GameState c -> GameState c
+updateBoard f gs = GameState (actions gs) (money gs) (buy gs) (table gs) (f (board gs)) (playerStates gs)
 
-instance Functor (GamePlay a) where
-  fmap f gp = gp >>= (\a -> return $ f a)
+updatePlayerState ::  Player -> (PlayerState c -> PlayerState c) -> GameState c -> GameState c
+updatePlayerState p f gs = GameState (actions gs) (money gs) (buy gs) (table gs) (board gs) (updateList p f (playerStates gs))
 
-updateState :: (a -> a) -> GameState a -> GameState a
-updateState f (GameState a Nothing) = GameState (f a) Nothing
-updateState f (GameState a (Just g)) = GameState a (Just g')
-  where g' ui gs = updateState f (g ui gs)
+initialState :: [(Text, [c])] -> Board c -> GameState c
+initialState ps b = GameState 0 0 0 [] b (map toPlayerStates ps)
+  where toPlayerStates (n,cards) = (Player n, PlayerState [] [] cards) 
 
-updateStateWithUI:: (String -> GameState a -> GameState a) -> GameState a -> GameState a
-updateStateWithUI f (GameState a Nothing) = GameState a (Just f)
-updateStateWithUI f (GameState a (Just g)) = GameState a (Just g')
-  where g' ui gs = updateStateWithUI f (g ui gs)
+updateActions :: (Int -> Int) -> GameState c -> GameState c
+updateActions f gs = GameState (f (actions gs)) (money gs) (buy gs) (table gs) (board gs) (playerStates gs)
 
-continue :: String -> GameState a -> GameState a
-continue s (GameState a (Just f)) = f s (GameState a Nothing)
- 
+updateMoney :: (Int -> Int) -> GameState c -> GameState c
+updateMoney f gs = GameState (actions gs) (f (money gs)) (buy gs) (table gs) (board gs) (playerStates gs)
+
+updateBuy :: (Int -> Int) -> GameState c -> GameState c
+updateBuy f gs = GameState (actions gs) (money gs) (f (buy gs)) (table gs) (board gs) (playerStates gs)
+
+players :: GameState c -> [Player]
+players gs = map fst (playerStates gs)
+
+playerState :: Player -> GameState c -> PlayerState c
+playerState p gs = getFromList p (playerStates gs)
+
+gotoNextPlayer :: GameState c -> GameState c
+gotoNextPlayer gs = GameState 1 0 1 [] (board gs) (shift $ playerStates gs)
+  where shift (a:as) = as ++ [a]
+  
+updatePlayerHand :: ([c] -> [c]) -> PlayerState c -> PlayerState c
+updatePlayerHand f ps = PlayerState { 
+  playerHand = f (playerHand ps), 
+  playerDraw = playerDraw ps, 
+  playerDiscard = playerDiscard ps }
+
+updatePlayerDraw :: ([c] -> [c]) -> PlayerState c -> PlayerState c
+updatePlayerDraw f ps = PlayerState { 
+  playerHand = playerHand ps, 
+  playerDraw = f (playerDraw ps), 
+  playerDiscard = playerDiscard ps }
+
+updatePlayerDiscard :: ([c] -> [c]) -> PlayerState c -> PlayerState c
+updatePlayerDiscard f ps = PlayerState { 
+  playerHand = playerHand ps, 
+  playerDraw = playerDraw ps, 
+  playerDiscard = f (playerDiscard ps) }
+
+---
+--- helper functions
+---
+
+getFromList :: (Eq a) => a -> [(a,b)] -> b
+getFromList a ((aa,bb):abs) = if a == aa then bb else getFromList a abs
+
+updateList :: (Eq a) => a -> (b -> b) -> [(a,b)] -> [(a,b)]
+updateList a f abs = map (\(aa,b) -> (aa, if a == aa then f b else b)) abs
