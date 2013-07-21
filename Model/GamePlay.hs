@@ -3,6 +3,7 @@ module Model.GamePlay (
   GamePlay,
   choose,
   decide,
+  endGame,
   getState,
   updateState,
     
@@ -14,6 +15,7 @@ module Model.GamePlay (
   playerDecision,
   playerChoiceOptions,
   playerChoice,
+  scores,
   
   upTo
   
@@ -34,7 +36,8 @@ newtype GamePlay s c a =
 
 data UserInteraction s c a =  
   Choice String Player [c] ([c] -> Maybe String) ([c] -> GamePlay s c a) | 
-  Decision String Player (Bool -> GamePlay s c a)
+  Decision String Player (Bool -> GamePlay s c a) |
+  GameOver [(Player, Int)]
   
 instance Monad (GamePlay s c) where
   return a = GamePlay (\s -> (Left a,s))
@@ -47,6 +50,7 @@ chain (Choice msg p cards v f) g = Choice msg p cards v f'
   where f' cs = (f cs) >>= g
 chain (Decision msg p f) g = Decision msg p f'
   where f' cs = (f cs) >>= g
+chain (GameOver s) g = GameOver s
   
 choose :: String -> Player -> [c] -> ([c] -> Maybe String) -> GamePlay s c [c]
 choose _ _ [] _ = return []
@@ -58,7 +62,10 @@ decide msg p = GamePlay (\s -> (Right $ Decision msg p f, s))
   where f b = return b
 
 instance Functor (GamePlay s c) where
-  fmap f gp = gp >>= (\a -> return $ f a)
+  fmap = liftM
+
+endGame :: [(Player, Int)] -> GamePlay s c ()
+endGame scores = GamePlay (\s -> (Right $ GameOver scores, s))
 
 ---
 --- Game a
@@ -104,6 +111,10 @@ playerChoice choice (Game (Choice _ _ cards constraint f, gs)) =
         safeWithout a [] = Nothing
         safeWithout a (b:bs) = if a == b then Just bs else (safeWithout a bs) >>= (\bb -> Just (b:bb))   
 playerChoice _ _ = Left "You're not in a state to choose."
+
+scores :: Game s c -> Maybe [(Player, Int)]
+scores (Game (GameOver s, _)) = Just s
+scores _ = Nothing
 
 ---
 --- GamePlay a

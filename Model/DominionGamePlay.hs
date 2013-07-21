@@ -71,28 +71,30 @@ data CardType = Victory ([Card] -> Int) |
 type DominionGamePlay = GamePlay (GameState Card) Card
 
 victoryPoints :: Card -> [Card] -> Int 
-victoryPoints = undefined
+victoryPoints c cs = foldr points 0 (cardTypes c)
+  where points (Victory f) acc = f cs
+        points _ acc = acc
 
 cardGamePlay :: Card -> Player -> DominionGamePlay ()
 cardGamePlay c p = playAction c p >> playAttack c p
 
 playAction :: Card -> Player -> DominionGamePlay ()
-playAction c p = forM (cardTypes c) cardTypeGamePlay >> return()
+playAction c p = forM_ (cardTypes c) cardTypeGamePlay
   where cardTypeGamePlay (Action a) = a p
         cardTypeGamePlay _ = return ()
 
 playReaction :: Card -> DominionGamePlay () -> Player -> DominionGamePlay ()
-playReaction c p a = forM (cardTypes c) cardTypeGamePlay >> return()
+playReaction c p a = forM_ (cardTypes c) cardTypeGamePlay
   where cardTypeGamePlay (Reaction f) = f p a
         cardTypeGamePlay _ = return ()
 
 playTreasure :: Card -> Player -> DominionGamePlay ()
-playTreasure c p = forM (cardTypes c) cardTypeGamePlay >> return()
+playTreasure c p = forM_ (cardTypes c) cardTypeGamePlay
   where cardTypeGamePlay (Treasure a) = a p
         cardTypeGamePlay _ = return ()
 
 playAttack :: Card -> Player -> DominionGamePlay ()
-playAttack c p = forM (cardTypes c) cardTypeGamePlay >> return()
+playAttack c p = forM_ (cardTypes c) cardTypeGamePlay
   where cardTypeGamePlay (Attack a) = attack a p
         cardTypeGamePlay _ = return ()
 
@@ -248,13 +250,12 @@ playerDrawAndAddToHand ps = case playerDrawCard ps of
 attack :: (Player -> Player -> DominionGamePlay ()) -> Player -> DominionGamePlay ()
 attack f attacker = do
   ps <- simpleGetter players
-  forM (tail ps) $ \victim -> do
+  forM_ (tail ps) $ \victim -> do
     h <- hand victim
     reaction <- choose "Choose reaction card to play" victim (filter isReaction h) (upTo 1)
     if null reaction 
       then f attacker victim
       else playReaction (head reaction) (f attacker victim) victim      
-  return ()
          
 ---
 --- Game progress
@@ -271,9 +272,20 @@ dominionGame :: [Card] -> DominionGamePlay ()
 dominionGame endCards = do
   playTurn
   gameOver <- hasEnded endCards
-  unless gameOver $ do
-    updateState gotoNextPlayer
-    dominionGame endCards
+  if gameOver
+    then countScores >>= endGame
+    else do
+      updateState gotoNextPlayer
+      dominionGame endCards
+
+countScores :: DominionGamePlay [(Player,Int)]
+countScores = liftM countScoresFromState getState
+  where countScoresFromState gs = map (playerScore gs) (players gs)
+        playerScore gs p = let 
+                  ps = playerState p gs
+                  cs = playerHand ps ++ playerDraw ps ++ playerDiscard ps
+                  count c acc = acc + victoryPoints c cs
+                  in (p, foldr count 0 cs)
 
 hasEnded :: [Card] -> DominionGamePlay Bool
 hasEnded endCards = fmap ended currentBoard
@@ -306,11 +318,10 @@ playMoney = do
   p <- currentPlayer
   h <- hand p
   cards <- choose "Choose treasure card(s) to play" p (filter isTreasure h) (\_ -> Nothing)
-  forM cards (\c -> do
+  forM_ cards (\c -> do
     takeCardFromHand c p
     putCardOnTable c
     playTreasure c p)
-  return ()
 
 buyCards :: DominionGamePlay ()
 buyCards = do
@@ -319,8 +330,7 @@ buyCards = do
   m <- currentMoney
   board <- currentBoard
   cards <- choose ("Choose at most " ++ show b ++ " card(s) to buy costing at most " ++ show m) p (cardsInBudget board m) (canBuy b m board)
-  forM cards (\c -> takeCardFromBoard c >> discardCard c p)
-  return ()
+  forM_ cards (\c -> takeCardFromBoard c >> discardCard c p)
 
 cardsInBudget :: Board Card -> Int -> [Card]
 cardsInBudget b budget = filter (\c -> cardValue c <= budget) $ map fst b
@@ -338,14 +348,13 @@ canBuy maxCount budget b (c:cs) = if maxCount < 1
 cleanUp :: DominionGamePlay ()
 cleanUp = do
   resetCounters
-  p <- fmap head (simpleGetter players)  
+  p <- liftM head (simpleGetter players)  
   t <- simpleGetter table
   updateState $ updateTable (\_ -> [])
   h <- hand p
   updateState $ updatePlayerState p $ updatePlayerHand (\_ -> [])
   updateState $ updatePlayerState p $ updatePlayerDiscard (\d -> h ++ t ++ d)
-  forM [1..5] (\_ -> drawCardAndPutInHand p)
-  return ()
+  forM_ [1..5] (\_ -> drawCardAndPutInHand p)
 
 resetCounters :: DominionGamePlay ()
 resetCounters = do
