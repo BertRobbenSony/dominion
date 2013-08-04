@@ -68,7 +68,7 @@ data CardType = Victory ([Card] -> Int) |
   Reaction (DominionGamePlay () -> Player -> DominionGamePlay ()) | 
   Attack (Player -> Player -> DominionGamePlay ())
 
-type DominionGamePlay = GamePlay (GameState Card) Card
+type DominionGamePlay = GamePlay (GameState Card) UserInteraction
 
 victoryPoints :: Card -> [Card] -> Int 
 victoryPoints c cs = foldr points 0 (cardTypes c)
@@ -119,10 +119,12 @@ isVictory c = any isVictoryType (cardTypes c)
         isVictoryType _ = False
 
 ---
---- Game a
+--- DominionGame
 ---
 
-newGame :: GameState Card -> [Card] -> Game (GameState Card) Card
+type DominionGame = Game (GameState Card) UserInteraction
+
+newGame :: GameState Card -> [Card] -> DominionGame
 newGame gs endCards = play gs (startGame endCards)
 
 instance Show (GameState Card) where
@@ -130,7 +132,77 @@ instance Show (GameState Card) where
             "\nActions: " ++ show (actions gs) ++ ", money: " ++ show (money gs) ++ ", buys: " ++ show (buy $ gs) ++ 
             "\nBoard: " ++ show (board gs) ++ 
             "\nTable: " ++ show (table gs)
+
+targetPlayer :: DominionGame -> Player
+targetPlayer g = case userInteraction g of
+  Choice _ p _ _ _ -> p
+  Decision _ p _ -> p
+
+playerMessage :: DominionGame -> String
+playerMessage g = case userInteraction g of
+  Choice msg _ cards _ _ -> msg ++ ". Select a subset from " ++ show cards
+  Decision msg _ _ -> msg
+
+isWaitingForPlayerDecision :: DominionGame -> Bool
+isWaitingForPlayerDecision g = case userInteraction g of
+  Decision _ _ _ -> True
+  otherwise -> False
+
+playerDecision :: Bool -> DominionGame -> Either String DominionGame
+playerDecision d g = case userInteraction g of
+  Decision _ _ f -> Right $ play (gameState g) (f d)
+  otherwise      -> Left "You're not in a state to decide"
+
+playerChoiceOptions :: DominionGame -> Maybe [Card]
+playerChoiceOptions g = case userInteraction g of
+  Choice _ _ options _ _ -> Just options
+  otherwise              -> Nothing
+
+playerChoice :: [Card] -> DominionGame -> Either String DominionGame
+playerChoice choice g = case userInteraction g of
+  Choice _ _ cards constraint f ->
+    if (choice `isSubset` cards) 
+      then maybe (Right $ play (gameState g) (f choice)) Left (constraint choice)
+      else Left "Please select a subset of the given options"
+    where [] `isSubset` _ = True
+          (a:as) `isSubset` bs = maybe False (\bb -> isSubset as bb) (safeWithout a bs)
+          safeWithout a [] = Nothing
+          safeWithout a (b:bs) = if a == b then Just bs else (safeWithout a bs) >>= (\bb -> Just (b:bb))   
+  otherwise -> Left "You're not in a state to choose."
+
+scores :: DominionGame -> Maybe [(Player, Int)]
+scores g = case userInteraction g of
+  GameOver s -> Just s
+  otherwise -> Nothing
+
   
+
+------------------------------------
+
+--- 
+--- UserInteraction
+---
+data UserInteraction gp =  
+  Choice String Player [Card] ([Card] -> Maybe String) ([Card] -> gp) | 
+  Decision String Player (Bool -> gp) |
+  GameOver [(Player, Int)]
+
+instance Functor UserInteraction where
+  fmap f (Choice msg p cards v cont) = Choice msg p cards v (\cs -> f (cont cs))
+  fmap f (Decision msg p cont) = Decision msg p (\cs -> f (cont cs))
+  fmap _ (GameOver score) = GameOver score 
+
+choose :: String -> Player -> [Card] -> ([Card] -> Maybe String) -> GamePlay s UserInteraction [Card]
+choose _ _ [] _ = return []
+choose msg p cards v = userInput $ Choice msg p cards v return
+
+decide :: String -> Player -> GamePlay s UserInteraction Bool
+decide msg p = userInput $ Decision msg p return
+
+endGame :: [(Player, Int)] -> GamePlay s UserInteraction ()
+endGame scores = userInput $ GameOver scores
+
+
 ---
 --- DominionGamePlay a
 ---
@@ -378,3 +450,6 @@ safeWithout a (b:bs) = if a == b then Just bs else (safeWithout a bs) >>= (\bb -
  
 updateList :: (Eq a) => a -> (b -> b) -> [(a,b)] -> [(a,b)]
 updateList a f abs = map (\(aa,b) -> (aa, if a == aa then f b else b)) abs
+
+upTo :: Int -> [a] -> Maybe String
+upTo n cs = if length cs <= n then Nothing else Just $ "Choose up to " ++ (show n) ++ " cards please."
