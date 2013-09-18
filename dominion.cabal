@@ -20,8 +20,15 @@ library
                      Settings.Development
                      Handler.Home
                      Handler.Games
-                     Model.Game
+                     Handler.Players
+                     Handler.Moves
+                     Handler.ErrorCode
                      Model.Card
+                     Model.DominionGamePlay
+                     Model.Game
+                     Model.GamePlay
+                     Model.GameState
+                     Model.Player
 
     if flag(dev) || flag(library-only)
         cpp-options:   -DDEVELOPMENT
@@ -73,6 +80,8 @@ library
                  , ghc-prim
                  , enumerator
                  , mtl
+                 , random
+                 , http-types
 
 executable         dominion
     if flag(library-only)

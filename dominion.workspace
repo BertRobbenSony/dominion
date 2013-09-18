@@ -1,0 +1,18 @@
+<NotepadPlus>
+    <Project name="yesod">
+        <Folder name="Handler">
+            <File name="Handler\Games.hs" />
+            <File name="Handler\Home.hs" />
+            <File name="Handler\Moves.hs" />
+            <File name="Handler\Players.hs" />
+        </Folder>
+        <Folder name="Model">
+            <File name="Model\Card.hs" />
+            <File name="Model\DominionGamePlay.hs" />
+            <File name="Model\Game.hs" />
+            <File name="Model\GamePlay.hs" />
+            <File name="Model\GameState.hs" />
+            <File name="Model\Player.hs" />
+        </Folder>
+    </Project>
+</NotepadPlus>

@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Model.Card (
 
   copper, 
@@ -7,6 +8,7 @@ module Model.Card (
   duchy,
   province,
   curse,
+  
   cellar,
   chapel,
   moat,
@@ -23,18 +25,27 @@ module Model.Card (
   smithy,
   spy,
   thief,
-  throneRoom
+  throneRoom,
+  
+  kingdomCards
     
 ) where
 
 import Model.GameState
-import Model.GamePlay
 import Model.Player
 import Model.DominionGamePlay
 import Control.Monad
 import Prelude
+import Data.Text (Text, pack)
 
-moneyCard :: String -> Int -> Int -> Card
+kingdomCards :: [Card]
+kingdomCards = [cellar,chapel,moat,
+  chancellor,village,woodcutter,workshop,
+  bureaucrat,feast,gardens,militia,moneylender,remodel,smithy,spy,thief,throneRoom,
+  councilRoom,festival,laboratory,library,market,mine,witch,
+  adventurer]
+
+moneyCard :: Text -> Int -> Int -> Card
 moneyCard n v m = card n v [Treasure (\_ -> increaseMoney m)]
 
 copper :: Card
@@ -44,7 +55,7 @@ silver = moneyCard "Silver" 2 2
 gold :: Card
 gold = moneyCard "Gold" 6 3
 
-victory :: String -> Int -> Int -> Card
+victory :: Text -> Int -> Int -> Card
 victory n c vp = card n c [Victory (\_ -> vp)]
 
 estate :: Card
@@ -57,20 +68,14 @@ province = victory "Province" 8 6
 curse :: Card
 curse = card "Curse" 0 [Victory (\_ -> -1)]
 
-noAction :: Player -> DominionGamePlay ()
-noAction p = return ()
-
-noPoints :: [Card] -> Int
-noPoints cards = 0
-
 -- 
 -- action cards --
 --
 
-actionCard :: String -> Int -> (Player -> DominionGamePlay ()) -> Card
+actionCard :: Text -> Int -> (Player -> DominionGamePlay ()) -> Card
 actionCard n v a = card n v [Action a]
 
-attackCard :: String -> Int -> (Player -> DominionGamePlay ()) -> (Player -> Player -> DominionGamePlay ()) -> Card
+attackCard :: Text -> Int -> (Player -> DominionGamePlay ()) -> (Player -> Player -> DominionGamePlay ()) -> Card
 attackCard n v ac at = card n v [Action ac, Attack at]
 
 -- Cellar Action  $2  +1 Action
@@ -82,9 +87,8 @@ cellar = actionCard "Cellar" 2 cellarGamePlay
                             increaseActions 1
                             h <- hand p 
                             cards <- choose "Choose cards to discard" p h (\_ -> Nothing)
-                            forM cards (\c -> discardCardFromHand c p)
-                            forM cards (\c -> drawCardAndPutInHand p)
-                            return ()  
+                            forM_ cards (\c -> discardCardFromHand c p)
+                            forM_ cards (\_ -> drawCardAndPutInHand p)
 
 
 -- Chapel Action  $2  Trash up to 4 cards from your hand.
@@ -93,15 +97,14 @@ chapel = actionCard "Chapel" 2 chapelGamePlay
   where chapelGamePlay p = do
                   h <- hand p
                   cards <- choose "Choose up to 4 cards to trash" p h (upTo 4)
-                  forM cards (\c -> takeCardFromHand c p >> trashCard c)
-                  return ()
+                  forM_ cards (\c -> takeCardFromHand c p >> trashCard c)
 
 -- Moat Action and Reaction $2  +2 Cards
 -- When another player plays an Attack card, you may reveal this from your hand. If you do, you are unaffected by that Attack.
 moat :: Card
 moat = card "Moat" 2 [Reaction moatReaction, Action moatAction]
   where moatAction p = drawCardAndPutInHand p >> drawCardAndPutInHand p
-        moatReaction _ = \p -> return ()
+        moatReaction _ = \_ -> return ()
 
 -- Chancellor Action  $3  +$2
 -- You may immediately put your deck into your discard pile.
@@ -113,8 +116,7 @@ chancellor = actionCard "Chancellor" 3 chancellorGamePlay
           when deckInDiscardPile (putDeckOnDiscardPile p)
         putDeckOnDiscardPile p = do
           cnt <- drawSize p
-          forM [1..cnt] (\_ -> drawAndDiscard p)
-          return ()
+          forM_ [1..cnt] (\_ -> drawAndDiscard p)
         drawAndDiscard p = do
           mc <- drawCard p
           maybe (return ()) (\c -> discardCard c p) mc 
@@ -129,7 +131,7 @@ village = actionCard "Village" 3 villageGamePlay
 -- Woodcutter Action  $3  +1 Buy; +$2.
 woodcutter :: Card
 woodcutter = actionCard "Woodcutter" 3 woodCutterGamePlay
-  where woodCutterGamePlay p = (increaseBuys 1) >> (increaseMoney 2)
+  where woodCutterGamePlay _ = (increaseBuys 1) >> (increaseMoney 2)
 
 
 -- Workshop Action  $3  Gain a card costing up to $4.
@@ -146,14 +148,14 @@ boardCards n = do
   b <- currentBoard
   return (map fst $ filter (\p -> snd p <= n) b)
 
-exactly :: Int -> [a] -> Maybe String
-exactly n cs = if length cs == n then Nothing else Just $ "Choose exactly " ++ (show n) ++ " card(s) please."
+exactly :: Int -> [a] -> Maybe Text
+exactly n cs = if length cs == n then Nothing else Just $ pack ("Choose exactly " ++ (show n) ++ " card(s) please.")
 
 -- Bureaucrat Action � Attack $4  Gain a silver card; put it on top of your deck. Each other player reveals a Victory card from his hand and puts it on his deck (or reveals a hand with no Victory cards).
 bureaucrat :: Card
 bureaucrat = attackCard "Bureaucrat" 4 bureaucratGamePlay bureaucratAttack
   where bureaucratGamePlay p = (takeCardFromBoard silver) >> (putCardOnTopOfDeck silver p)
-        bureaucratAttack p victim = do
+        bureaucratAttack _ victim = do
           h <- hand victim
           let victoryCardsInHand = filter isVictory h
           unless (null victoryCardsInHand) $ do
@@ -190,8 +192,7 @@ militia = attackCard "Militia" 4 militiaAction militiaAttack
         discardDownToThree p victim = do
           currentHand <- hand victim
           cards <- choose "Choose cards to discard (down to 3 in hand)" p currentHand (\cs -> if length currentHand == length cs + 3 then Nothing else Just "Discard until 3 cards left please")
-          forM cards (\c -> discardCardFromHand c victim) 
-          return ()
+          forM_ cards (\c -> discardCardFromHand c victim)           
  
 -- Moneylender  Action  $4  Trash a Copper  from your hand. If you do, +$3.
 moneylender :: Card
@@ -231,25 +232,24 @@ spy = attackCard "Spy" 4 spyAction spyAttack
           increaseActions 1
           drawCardAndPutInHand p
           spyAttack p p
-        spyAttack spy victim = do
+        spyAttack spyPlayer victim = do
           mc <- drawCard victim
-          maybe (return ()) (spyOnCard spy victim) mc
-        spyOnCard spy victim c = do
-          putBack <- decide ("Put " ++ (show c) ++ " back on top of " ++ (show victim) ++ "'s deck?") spy
+          maybe (return ()) (spyOnCard spyPlayer victim) mc
+        spyOnCard spyPlayer victim c = do
+          putBack <- decide (pack ("Put " ++ (show c) ++ " back on top of " ++ (show victim) ++ "'s deck?")) spyPlayer
           (if putBack then putCardOnTopOfDeck else discardCard) c victim
 
 
 -- Thief  Action � Attack $4  Each other player reveals the top 2 cards of his deck. If they revealed any Treasure cards, they trash one of them that you choose. You may gain any or all of these trashed cards. They discard the other revealed cards.
 thief :: Card
 thief = attackCard "Thief" 4 (\_ -> return ()) thiefAttack
-  where thiefAttack thief victim = do
+  where thiefAttack thiefPlayer victim = do
           cs <- drawCards victim 2
-          toTrash <- choose ("Choose card to steal from " ++ show (victim)) thief (filter isTreasure cs) (upTo 1)
-          forM toTrash (gainOrTrash thief)
-          return ()
-        gainOrTrash thief c = do
-          gain <- decide ("Do you want to gain a " ++ (show c) ++ " ?") thief
-          if gain then discardCard c thief else trashCard c
+          toTrash <- choose (pack ("Choose card to steal from " ++ show (victim))) thiefPlayer (filter isTreasure cs) (upTo 1)
+          forM_ toTrash (gainOrTrash thiefPlayer)
+        gainOrTrash thiefPlayer c = do
+          gain <- decide (pack ("Do you want to gain a " ++ (show c) ++ " ?")) thiefPlayer
+          if gain then discardCard c thiefPlayer else trashCard c
 
           
 -- Throne Room  Action  $4  Choose an Action card in your hand. Play it twice.
@@ -275,13 +275,12 @@ councilRoom = actionCard "Council Room" 5 playCouncilRoom
           drawCardAndPutInHand p
           drawCardAndPutInHand p
           otherPlayers <- fmap tail allPlayers
-          forM otherPlayers drawCardAndPutInHand
-          return ()
+          forM_ otherPlayers drawCardAndPutInHand
 
 -- Festival Action  $5  +2 Actions, +1 Buy; +$2.
 festival :: Card
 festival = actionCard "Festival" 5 playFestival
-  where playFestival p = do
+  where playFestival _ = do
           increaseActions 2
           increaseBuys 1
           increaseMoney 2
@@ -309,7 +308,7 @@ library = actionCard "Library" 5 playLib
           if sa then (putCardInHand c p >> playLib p) else (playLib p >> discardCard c p)
         use p c = 
           if isAction c 
-            then decide ("Put " ++ show c ++ " in hand?") p
+            then decide (pack ("Put " ++ show c ++ " in hand?")) p
             else return True
                   
 
@@ -346,7 +345,8 @@ witch = attackCard "Witch" 5 witchAction witchAttack
 -- Put those Treasure cards in your hand and discard the other revealed cards.
 adventurer :: Card
 adventurer = actionCard "Adventurer" 6 (adventurerAction 2)
-  where adventurerAction 0 _ = return ()
+  where adventurerAction :: Int -> Player -> DominionGamePlay ()
+        adventurerAction 0 _ = return ()
         adventurerAction n p = do
           mc <- drawCard p
           maybe (return ()) (withCard n p) mc

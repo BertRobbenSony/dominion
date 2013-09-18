@@ -14,8 +14,12 @@ shiftChar a z n c
   | a <= c && c <= z = let a' = fromEnum a
                            z' = fromEnum z
                            c' = fromEnum c
-                       in toEnum (a' + (c' - a' + n) `mod` (z' - a'))
+                       in toEnum (a' + (c' - a' + n) `posMod` (z' - a'))
   | otherwise = c
+
+posMod :: Int -> Int -> Int
+posMod a b = let n = a % b in if n < 0 then n + b else n
   
 decode :: Int -> String -> String
 decode n = encode (-n)
+

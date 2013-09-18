@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric,TypeSynonymInstances,FlexibleInstances #-}
+{-# LANGUAGE TypeSynonymInstances,FlexibleInstances #-}
 module Model.GamePlay (
   GamePlay,
   getState,
@@ -13,7 +13,6 @@ module Model.GamePlay (
 ) where
 
 import Prelude
-import GHC.Generics
 import Control.Monad
 
 ---

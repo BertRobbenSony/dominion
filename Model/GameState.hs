@@ -19,6 +19,8 @@ module Model.GameState (
   updateMoney,
   buy,
   updateBuy,
+  randomGen,
+  updateRandomGen,
   players,
   playerState,
   gotoNextPlayer,
@@ -28,9 +30,9 @@ module Model.GameState (
 ) where
 
 import Prelude
-import Data.Text (Text, unpack)
 import GHC.Generics
 import Model.Player
+import System.Random
 
 --
 -- Board
@@ -50,29 +52,33 @@ data GameState c = GameState {
   buy :: Int, 
   table :: [c],
   board :: Board c, 
-  playerStates :: [(Player,PlayerState c)] } deriving (Generic)
+  playerStates :: [(Player,PlayerState c)],
+  randomGen :: StdGen } deriving (Generic)
 
 updateTable :: ([c] -> [c]) -> GameState c -> GameState c
-updateTable f gs = GameState (actions gs) (money gs) (buy gs) (f (table gs)) (board gs) (playerStates gs)
+updateTable f gs = gs { table = f (table gs) }
 
 updateBoard :: (Board c -> Board c) -> GameState c -> GameState c
-updateBoard f gs = GameState (actions gs) (money gs) (buy gs) (table gs) (f (board gs)) (playerStates gs)
+updateBoard f gs = gs { board = f (board gs) }
 
 updatePlayerState ::  Player -> (PlayerState c -> PlayerState c) -> GameState c -> GameState c
-updatePlayerState p f gs = GameState (actions gs) (money gs) (buy gs) (table gs) (board gs) (updateList p f (playerStates gs))
+updatePlayerState p f gs = gs { playerStates = updateList p f (playerStates gs) }
 
-initialState :: [(Text, [c])] -> Board c -> GameState c
-initialState ps b = GameState 0 0 0 [] b (map toPlayerStates ps)
-  where toPlayerStates (n,cards) = (Player n, PlayerState [] [] cards) 
+updateRandomGen :: StdGen -> GameState c -> GameState c
+updateRandomGen r gs = gs { randomGen = r }
+
+initialState :: Int -> [(Player, [c])] -> Board c -> GameState c
+initialState seed ps b = GameState 0 0 0 [] b (map toPlayerStates ps) (mkStdGen seed)
+  where toPlayerStates (p,cards) = (p, PlayerState [] [] cards) 
 
 updateActions :: (Int -> Int) -> GameState c -> GameState c
-updateActions f gs = GameState (f (actions gs)) (money gs) (buy gs) (table gs) (board gs) (playerStates gs)
+updateActions f gs = gs { actions = f (actions gs) }
 
 updateMoney :: (Int -> Int) -> GameState c -> GameState c
-updateMoney f gs = GameState (actions gs) (f (money gs)) (buy gs) (table gs) (board gs) (playerStates gs)
+updateMoney f gs = gs { money = f (money gs) }
 
 updateBuy :: (Int -> Int) -> GameState c -> GameState c
-updateBuy f gs = GameState (actions gs) (money gs) (f (buy gs)) (table gs) (board gs) (playerStates gs)
+updateBuy f gs = gs { buy = f (buy gs) }
 
 players :: GameState c -> [Player]
 players gs = map fst (playerStates gs)
@@ -81,7 +87,7 @@ playerState :: Player -> GameState c -> PlayerState c
 playerState p gs = getFromList p (playerStates gs)
 
 gotoNextPlayer :: GameState c -> GameState c
-gotoNextPlayer gs = GameState 1 0 1 [] (board gs) (shift $ playerStates gs)
+gotoNextPlayer gs = GameState 1 0 1 [] (board gs) (shift $ playerStates gs) (randomGen gs)
   where shift (a:as) = as ++ [a]
   
 updatePlayerHand :: ([c] -> [c]) -> PlayerState c -> PlayerState c
@@ -107,7 +113,7 @@ updatePlayerDiscard f ps = PlayerState {
 ---
 
 getFromList :: (Eq a) => a -> [(a,b)] -> b
-getFromList a ((aa,bb):abs) = if a == aa then bb else getFromList a abs
+getFromList a ((aa,bb):rest) = if a == aa then bb else getFromList a rest
 
 updateList :: (Eq a) => a -> (b -> b) -> [(a,b)] -> [(a,b)]
-updateList a f abs = map (\(aa,b) -> (aa, if a == aa then f b else b)) abs
+updateList a f list = map (\(aa,b) -> (aa, if a == aa then f b else b)) list

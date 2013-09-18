@@ -4,50 +4,107 @@ module Handler.Games where
 import Import
 import Control.Concurrent
 import Data.Map as Map
-import Model.Game (newGame, join)
+import Model.Game
+import Model.Player
 import GHC.Generics
 import Data.Aeson as Aeson
-import Data.Monoid
 import Data.Text (pack)
+import Handler.Players
+import Handler.ErrorCode
 
-data PostGame = PostGame { numberOfPlayers :: Int } deriving (Generic,Show)
-instance Aeson.FromJSON PostGame
+data PostGames = PostGames { numberOfPlayers :: Int } deriving (Generic,Show)
+instance Aeson.FromJSON PostGames
 
-data PostGameId = PostGameId { name :: Text } deriving (Generic,Show)
-instance Aeson.FromJSON PostGameId
+data PostGamesId = PostGamesId { playerId :: Int } deriving (Generic,Show)
+instance Aeson.FromJSON PostGamesId
 
-getGamesIdR :: Int -> Handler RepJson
-getGamesIdR gameId = do
+getGameR :: Int -> Handler RepJson
+getGameR gameId = do
   yesod <- getYesod
   allGames <- liftIO $ readMVar $ games yesod
-  let g = allGames Map.! gameId
-  jsonToRepJson g
+  g <- liftIO $ readMVar (allGames Map.! gameId)
+  renderGame (gameId,g)
 
-postGamesIdR :: Int -> Handler RepJson
-postGamesIdR gameId = do
-  postGameId <- parseJsonBody_
+postGameR :: Int -> Handler RepJson
+postGameR gameId = do
+  postGamesId <- parseJsonBody_
   yesod <- getYesod
   allGames <- liftIO $ takeMVar $ games yesod
-  case Map.lookup gameId allGames of
-  	Nothing -> jsonToRepJson $ Aeson.object ["error" .= pack "Game does not exist"]
-  	Just g -> case join (name postGameId) g of
-  		Nothing -> jsonToRepJson $ Aeson.object ["error" .= pack "Game is already full"]
-  		Just g' -> do
-  			liftIO $ putMVar (games yesod) (Map.insert gameId g' allGames)
-  			jsonToRepJson g'
+  allPlayers <- liftIO $ readMVar $ players yesod
+  let player = Map.lookup (playerId postGamesId) allPlayers
+  withGame gameId (joinIfPossible player)
+
+withGame :: Int -> (Game -> Either ErrorCode Game) -> Handler RepJson
+withGame gameId f = do
+  yesod <- getYesod
+  allGames <- liftIO $ readMVar $ games yesod
+  res <- case Map.lookup gameId allGames of
+    Nothing -> return $ Left unknownGame
+    Just mvg -> liftIO $ updateMVar mvg f
+  renderResponse res
+
+updateMVar :: MVar a -> (a -> Either ErrorCode a) -> IO (Either ErrorCode a)
+updateMVar mvar f = modifyMVar mvar (return . f') where
+    f' a = case f a of
+        Left err -> (a, Left err)
+        Right a' -> (a', Right a')
+        
+renderResponse :: (ToJSON a) => Either ErrorCode a -> Handler RepJson
+renderResponse (Left err) = returnError err
+renderResponse (Right a) = jsonToRepJson a
+
+	
+joinIfPossible :: Maybe Player -> Game -> Either ErrorCode Game
+joinIfPossible Nothing _ = Left unknownPlayer
+joinIfPossible (Just player) g = liftErrorCode illegalMove (join player g)
 
 postGamesR :: Handler RepJson
 postGamesR = do
   postGame <- parseJsonBody_
   yesod <- getYesod
   allGames <- liftIO $ takeMVar $ games yesod
-  let allGames' = Map.insert (Map.size allGames) (newGame (numberOfPlayers postGame)) allGames 
+  let g = newGame (numberOfPlayers postGame) 1
+  mvg <- liftIO $ newMVar g
+  let allGames' = Map.insert (Map.size allGames) mvg allGames 
   liftIO $ putMVar (games yesod) allGames'
-  jsonToRepJson $ Aeson.object ["current-size" .= Map.size allGames' ]
+  renderGame (Map.size allGames, g)
 
 getGamesR :: Handler RepJson
 getGamesR = do
   yesod <- getYesod
+  render <- getUrlRender
   allGames <- liftIO $ readMVar $ games yesod
-  jsonToRepJson $ Aeson.object (Import.map (\(id,g) -> pack (show id) .= g) (Map.toList allGames)) 
+  jsonToRepJson $ Import.map (gameToJSON render) (Map.toList allGames)
    
+
+initialGames :: Map.Map Int Player -> IO (Map.Map Int (MVar Game))
+initialGames players = do
+    g0 <- newMVar (newGame 2 0)
+    g1 <- newMVar (rightGame $ join p0 (newGame 2 1))
+    g2 <- newMVar (rightGame $ join p1 (newGame 2 2) >>= join p2)
+    return $ Map.fromList [(0,g0),(1,g1),(2,g2)]
+    where
+	p0 = players Map.! 0
+	p1 = players Map.! 1
+	p2 = players Map.! 2
+	rightGame (Right g) = g
+	
+---- json rep
+
+renderGame :: (Int,Game) -> Handler RepJson
+renderGame g = do
+	render <- getUrlRender
+	jsonToRepJson $ gameToJSON render g
+	
+gameToJSON render (gid,g) = Aeson.object [
+	"status" .= show g, 
+	"gid" .= gid, 
+	"url" .= render (GameR gid)]
+   
+   
+   
+--
+-- POST /games => { "numberOfPlayers": <Int> } -> { "url": <GamesUrl>, "seats" : [Maybe<Player>] }
+-- GET /games/#Int 
+-- POST /games/#Int => { "player-name": <Text> } -> { "url": <PlayerUrl>, "id" : String }
+--    

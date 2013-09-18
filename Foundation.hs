@@ -17,6 +17,7 @@ import System.Log.FastLogger (Logger)
 import Data.Map
 import Control.Concurrent
 import Model.Game
+import Model.Player
 
 -- | The site argument for your application. This can be a good place to
 -- keep settings and values requiring initialization before your application
@@ -27,7 +28,8 @@ data App = App
     , getStatic :: Static -- ^ Settings for static file serving.
     , httpManager :: Manager
     , appLogger :: Logger
-    , games :: MVar (Map Int Game)
+    , games :: MVar (Map Int (MVar Game))
+    , players :: MVar (Map Int Player)
     }
 
 -- Set up i18n messages. See the message folder.

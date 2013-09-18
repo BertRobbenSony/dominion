@@ -1,7 +1,8 @@
-{-# LANGUAGE DeriveGeneric,TypeSynonymInstances,FlexibleInstances #-}
+{-# LANGUAGE DeriveGeneric,TypeSynonymInstances,FlexibleInstances,OverloadedStrings #-}
 module Model.DominionGamePlay (
   Card,
   card,
+  cardName,
   cardValue,
   cardGamePlay,
   isTreasure,
@@ -31,32 +32,43 @@ module Model.DominionGamePlay (
   discardCardFromHand,
   drawCards,
   allPlayers,
+  choose,
+  decide,
+  upTo,
   
-  newGame
-    
+  newDominionGame,
+  DominionGame,
+  dominionGameState,
+  targetPlayer,
+  playerMessage,
+  isWaitingForPlayerDecision,
+  playerDecision,
+  playerChoiceOptions,
+  playerChoice,
+  scores
+      
 ) where
 
 import Prelude
-import Data.Text (Text, unpack)
-import GHC.Generics
 import Control.Monad
 import Model.Player
 import Model.GameState
 import Model.GamePlay
+import System.Random
+import Data.Text (Text, unpack, pack, append)
 
---
 -- Card
 --
 data Card = Card { 
-  cardName :: String, 
+  cardName :: Text, 
   cardValue :: Int, 
   cardTypes :: [CardType] }
 
-card :: String -> Int -> [CardType] -> Card
+card :: Text -> Int -> [CardType] -> Card
 card = Card
 
 instance Show Card where                                                                                       
-    show c = cardName c                                                                            
+    show c = unpack $ cardName c                                                                            
 
 instance Eq Card where
   c1 == c2 = (cardName c1) == (cardName c2)
@@ -72,7 +84,7 @@ type DominionGamePlay = GamePlay (GameState Card) UserInteraction
 
 victoryPoints :: Card -> [Card] -> Int 
 victoryPoints c cs = foldr points 0 (cardTypes c)
-  where points (Victory f) acc = f cs
+  where points (Victory f) _ = f cs
         points _ acc = acc
 
 cardGamePlay :: Card -> Player -> DominionGamePlay ()
@@ -122,10 +134,10 @@ isVictory c = any isVictoryType (cardTypes c)
 --- DominionGame
 ---
 
-type DominionGame = Game (GameState Card) UserInteraction
+newtype DominionGame = DominionGame (Game (GameState Card) UserInteraction)
 
-newGame :: GameState Card -> [Card] -> DominionGame
-newGame gs endCards = play gs (startGame endCards)
+newDominionGame :: GameState Card -> [Card] -> DominionGame
+newDominionGame gs endCards = DominionGame $ play gs (startGame endCards)
 
 instance Show (GameState Card) where
   show gs = "Hand: " ++ show (playerHand $ playerState (head (players gs)) gs) ++ 
@@ -133,47 +145,51 @@ instance Show (GameState Card) where
             "\nBoard: " ++ show (board gs) ++ 
             "\nTable: " ++ show (table gs)
 
+dominionGameState :: DominionGame -> GameState Card
+dominionGameState (DominionGame g) = gameState g
+
 targetPlayer :: DominionGame -> Player
-targetPlayer g = case userInteraction g of
+targetPlayer (DominionGame g) = case userInteraction g of
   Choice _ p _ _ _ -> p
   Decision _ p _ -> p
 
-playerMessage :: DominionGame -> String
-playerMessage g = case userInteraction g of
-  Choice msg _ cards _ _ -> msg ++ ". Select a subset from " ++ show cards
+playerMessage :: DominionGame -> Text
+playerMessage (DominionGame g) = case userInteraction g of
+  Choice msg _ cards _ _ -> msg `append` (pack (". Select a subset from " ++ (show cards)))
   Decision msg _ _ -> msg
+  GameOver _ -> "This game has ended."
 
 isWaitingForPlayerDecision :: DominionGame -> Bool
-isWaitingForPlayerDecision g = case userInteraction g of
+isWaitingForPlayerDecision (DominionGame g) = case userInteraction g of
   Decision _ _ _ -> True
-  otherwise -> False
+  _              -> False
 
-playerDecision :: Bool -> DominionGame -> Either String DominionGame
-playerDecision d g = case userInteraction g of
-  Decision _ _ f -> Right $ play (gameState g) (f d)
-  otherwise      -> Left "You're not in a state to decide"
+playerDecision :: Bool -> DominionGame -> Either Text DominionGame
+playerDecision d (DominionGame g) = case userInteraction g of
+  Decision _ _ f -> Right $ DominionGame $ play (gameState g) (f d)
+  _              -> Left "You're not in a state to decide"
 
 playerChoiceOptions :: DominionGame -> Maybe [Card]
-playerChoiceOptions g = case userInteraction g of
+playerChoiceOptions (DominionGame g) = case userInteraction g of
   Choice _ _ options _ _ -> Just options
-  otherwise              -> Nothing
+  _                      -> Nothing
 
-playerChoice :: [Card] -> DominionGame -> Either String DominionGame
-playerChoice choice g = case userInteraction g of
+playerChoice :: [Card] -> DominionGame -> Either Text DominionGame
+playerChoice choice (DominionGame g) = case userInteraction g of
   Choice _ _ cards constraint f ->
     if (choice `isSubset` cards) 
-      then maybe (Right $ play (gameState g) (f choice)) Left (constraint choice)
+      then maybe (Right $ DominionGame $ play (gameState g) (f choice)) Left (constraint choice)
       else Left "Please select a subset of the given options"
     where [] `isSubset` _ = True
           (a:as) `isSubset` bs = maybe False (\bb -> isSubset as bb) (safeWithout a bs)
-          safeWithout a [] = Nothing
+          safeWithout _ [] = Nothing
           safeWithout a (b:bs) = if a == b then Just bs else (safeWithout a bs) >>= (\bb -> Just (b:bb))   
-  otherwise -> Left "You're not in a state to choose."
+  _ -> Left "You're not in a state to choose."
 
 scores :: DominionGame -> Maybe [(Player, Int)]
-scores g = case userInteraction g of
+scores (DominionGame g) = case userInteraction g of
   GameOver s -> Just s
-  otherwise -> Nothing
+  _ -> Nothing
 
   
 
@@ -183,8 +199,8 @@ scores g = case userInteraction g of
 --- UserInteraction
 ---
 data UserInteraction gp =  
-  Choice String Player [Card] ([Card] -> Maybe String) ([Card] -> gp) | 
-  Decision String Player (Bool -> gp) |
+  Choice Text Player [Card] ([Card] -> Maybe Text) ([Card] -> gp) | 
+  Decision Text Player (Bool -> gp) |
   GameOver [(Player, Int)]
 
 instance Functor UserInteraction where
@@ -192,15 +208,15 @@ instance Functor UserInteraction where
   fmap f (Decision msg p cont) = Decision msg p (\cs -> f (cont cs))
   fmap _ (GameOver score) = GameOver score 
 
-choose :: String -> Player -> [Card] -> ([Card] -> Maybe String) -> GamePlay s UserInteraction [Card]
+choose :: Text -> Player -> [Card] -> ([Card] -> Maybe Text) -> GamePlay s UserInteraction [Card]
 choose _ _ [] _ = return []
 choose msg p cards v = userInput $ Choice msg p cards v return
 
-decide :: String -> Player -> GamePlay s UserInteraction Bool
+decide :: Text -> Player -> GamePlay s UserInteraction Bool
 decide msg p = userInput $ Decision msg p return
 
 endGame :: [(Player, Int)] -> GamePlay s UserInteraction ()
-endGame scores = userInput $ GameOver scores
+endGame finalScores = userInput $ GameOver finalScores
 
 
 ---
@@ -263,25 +279,29 @@ discardCardFromHand c p = (takeCardFromHand c p) >> (discardCard c p)
 
 drawCard :: Player -> DominionGamePlay (Maybe Card)
 drawCard p = do
-  ps <- simpleGetter $ playerState p  
-  let (mc, ps') = playerDrawCard ps
+  ps <- simpleGetter $ playerState p
+  rg <- simpleGetter $ randomGen
+  let (rg1,rg2) = split rg  
+  let (mc, ps') = playerDrawCard rg1 ps
   updateState $ updatePlayerState p (\_ -> ps')
+  updateState $ updateRandomGen rg2
   return mc
 
--- todo add shuffle  
-playerDrawCard :: PlayerState c -> (Maybe c, PlayerState c) 
-playerDrawCard ps = case (playerDraw ps) of
+playerDrawCard :: (RandomGen r) => r -> PlayerState c -> (Maybe c, PlayerState c) 
+playerDrawCard r ps = case (playerDraw ps) of
   c:cs -> (Just c, updatePlayerDraw (\_ -> cs) ps)
   [] -> case playerDiscard ps of
       [] -> (Nothing, ps)
-      c:cs -> (Just c, PlayerState { playerHand = playerHand ps, playerDraw = cs, playerDiscard = [] })
+      cs -> let (c:rest) = shuffle r cs
+            in (Just c, PlayerState { playerHand = playerHand ps, playerDraw = rest, playerDiscard = [] })
 
 drawCards :: Player -> Int -> DominionGamePlay [Card]
+drawCards _ 0 = return []
 drawCards p n = do
-   ps <- simpleGetter $ playerState p
-   let (cs,ps') = playerDrawCards n ps
-   updateState $ updatePlayerState p (\_ -> ps')
-   return cs
+  mc <- drawCard p
+  case mc of
+    Nothing -> return []
+    Just c -> fmap (c:) (drawCards p (n-1))
 
 drawCardAndPutInHand :: Player -> DominionGamePlay ()
 drawCardAndPutInHand p = do
@@ -297,28 +317,10 @@ takeCardFromTable c = updateState $ updateTable (without c)
 putCardOnTopOfDeck :: Card -> Player -> DominionGamePlay ()
 putCardOnTopOfDeck c p = updateState $ updatePlayerState p (updatePlayerDraw (c:)) 
 
-takeFromBoard :: (Eq c) => c -> Board c -> Board c
-takeFromBoard c1 bo@((c2,n):b) = if c1 == c2 
-  then if n == 0 then bo else (c2,n-1):b
-  else (c2,n) : (takeFromBoard c1 b)
-
 ---
 --- Player state changes
 ---
 
-playerDrawCards :: Int -> PlayerState c -> ([c], PlayerState c) 
-playerDrawCards 0 ps = ([], ps) 
-playerDrawCards n ps = case (playerDraw ps) of
-  c:cs -> let (cards, ps') = playerDrawCards (n-1) (updatePlayerDraw (\_ -> cs) ps) in (c:cards, ps')
-  [] -> case playerDiscard ps of
-      [] -> ([], ps)
-      cs -> playerDrawCards n (PlayerState { playerHand = playerHand ps, playerDraw = cs, playerDiscard = [] })
-
-playerDrawAndAddToHand :: PlayerState c -> PlayerState c
-playerDrawAndAddToHand ps = case playerDrawCard ps of
-  (Nothing, ps') -> ps'
-  (Just c, ps') -> updatePlayerHand (c:) ps'
-  
 attack :: (Player -> Player -> DominionGamePlay ()) -> Player -> DominionGamePlay ()
 attack f attacker = do
   ps <- simpleGetter players
@@ -337,7 +339,7 @@ startGame :: [Card] -> DominionGamePlay ()
 startGame endCards = do
   resetCounters
   ps <- simpleGetter players
-  forM ps (\p -> forM [1..5] (\_ -> drawCardAndPutInHand p))
+  forM_ ps (\p -> forM [1..5] (\_ -> drawCardAndPutInHand p))
   dominionGame endCards
 
 dominionGame :: [Card] -> DominionGamePlay ()
@@ -361,9 +363,9 @@ countScores = liftM countScoresFromState getState
 
 hasEnded :: [Card] -> DominionGamePlay Bool
 hasEnded endCards = fmap ended currentBoard
-  where ended board = threeOrMoreEmptySpaces board || endCardsEmpty board
-        threeOrMoreEmptySpaces board = length (filter (\(_,n) -> n == 0) board) >= 3
-        endCardsEmpty board = 0 `elem` map (\c -> getFromList c board) endCards
+  where ended brd = threeOrMoreEmptySpaces brd || endCardsEmpty brd
+        threeOrMoreEmptySpaces brd = length (filter (\(_,n) -> n == 0) brd) >= 3
+        endCardsEmpty brd = 0 `elem` map (\c -> getFromList c brd) endCards
 
 playTurn :: DominionGamePlay ()
 playTurn = do
@@ -382,8 +384,8 @@ playActions = do
     takeCardFromHand (head cards) p
     putCardOnTable (head cards)
     cardGamePlay (head cards) p
-    actions <- currentActions
-    when (actions > 0) playActions
+    actionsLeft <- currentActions
+    when (actionsLeft > 0) playActions
 
 playMoney :: DominionGamePlay ()
 playMoney = do
@@ -400,17 +402,17 @@ buyCards = do
   p <- currentPlayer  
   b <- currentBuys
   m <- currentMoney
-  board <- currentBoard
-  cards <- choose ("Choose at most " ++ show b ++ " card(s) to buy costing at most " ++ show m) p (cardsInBudget board m) (canBuy b m board)
+  brd <- currentBoard
+  cards <- choose (pack ("Choose at most " ++ show b ++ " card(s) to buy costing at most " ++ show m)) p (cardsInBudget brd m) (canBuy b m brd)
   forM_ cards (\c -> takeCardFromBoard c >> discardCard c p)
 
 cardsInBudget :: Board Card -> Int -> [Card]
 cardsInBudget b budget = filter (\c -> cardValue c <= budget) $ map fst b
 
-canBuy :: Int -> Int -> Board Card -> [Card] -> Maybe String
+canBuy :: Int -> Int -> Board Card -> [Card] -> Maybe Text
 canBuy _ _ _ [] = Nothing
 canBuy maxCount budget b (c:cs) = if maxCount < 1 
-  then Just $ "You can only buy " ++ (show maxCount) ++ " cards"
+  then Just $ pack ("You can only buy " ++ show maxCount ++ " cards")
   else if budget < cardValue c 
        then Just "You don't have enough money to buy all these cards"
        else if getFromList c b < 1 
@@ -438,18 +440,22 @@ resetCounters = do
 --- helper functions
 ---
 
-takeFirst :: (Eq a) => a -> [a] -> [a]
-takeFirst c1 (c2:cs) = if c1 == c2 then cs else c1 : takeFirst c1 cs
- 
 without :: (Eq a) => a -> [a] -> [a]
 without c1 (c2:cs) = if c1 == c2 then cs else c2:(without c1 cs)
                         
-safeWithout :: (Eq a) => a -> [a] -> Maybe [a]
-safeWithout a [] = Nothing
-safeWithout a (b:bs) = if a == b then Just bs else (safeWithout a bs) >>= (\bb -> Just (b:bb))
- 
 updateList :: (Eq a) => a -> (b -> b) -> [(a,b)] -> [(a,b)]
-updateList a f abs = map (\(aa,b) -> (aa, if a == aa then f b else b)) abs
+updateList a f lst = map (\(aa,b) -> (aa, if a == aa then f b else b)) lst
 
-upTo :: Int -> [a] -> Maybe String
-upTo n cs = if length cs <= n then Nothing else Just $ "Choose up to " ++ (show n) ++ " cards please."
+upTo :: Int -> [a] -> Maybe Text
+upTo n cs = if length cs <= n then Nothing else Just $ pack ("Choose up to " ++ show n ++ " cards please.")
+
+-- shuffling in the style you would do it with a regular deck of cards
+shuffle :: (RandomGen r) => r -> [c] -> [c]
+shuffle rg cards = snd $ foldr (.) id (replicate 7 shuffle') (rg,cards) where
+  shuffle' :: (RandomGen r) => (r,[c]) -> (r,[c])
+  shuffle' (r,[]) = (r, [])
+  shuffle' (r,cs) = let (i, r') = randomR (1, length cs) r 
+                        (start,end) = splitAt i cs
+                        (r'',end') = shuffle' (r',end)
+                    in (r'', end' ++ start)
+
