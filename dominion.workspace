@@ -3,7 +3,7 @@
         <Folder name="Handler">
             <File name="Handler\Games.hs" />
             <File name="Handler\Home.hs" />
-            <File name="Handler\Moves.hs" />
+            <File name="Handler\GamePlayers.hs" />
             <File name="Handler\Players.hs" />
         </Folder>
         <Folder name="Model">

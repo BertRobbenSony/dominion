@@ -9,7 +9,7 @@
 
 /games/#Int GameR GET POST
 
-/games/#Int/moves MovesR POST
+/games/#Int/players/#Int GamePlayersR POST GET
 
 /players PlayersR POST GET
 

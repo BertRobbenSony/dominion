@@ -21,7 +21,7 @@ library
                      Handler.Home
                      Handler.Games
                      Handler.Players
-                     Handler.Moves
+                     Handler.GamePlayers
                      Handler.ErrorCode
                      Model.Card
                      Model.DominionGamePlay

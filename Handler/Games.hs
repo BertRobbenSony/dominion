@@ -28,13 +28,30 @@ getGameR gameId = do
 postGameR :: Int -> Handler RepJson
 postGameR gameId = do
   postGamesId <- parseJsonBody_
+  player <- getPlayer (playerId postGamesId)
+  game <- getGame gameId
+  liftErrorCode illegalMove (join player g)
   yesod <- getYesod
   allGames <- liftIO $ takeMVar $ games yesod
-  allPlayers <- liftIO $ readMVar $ players yesod
-  let player = Map.lookup (playerId postGamesId) allPlayers
-  withGame gameId (joinIfPossible player)
+  withGame gameId (fmap (fmap (\g -> (gameId,g))) (joinIfPossible player))
 
-withGame :: Int -> (Game -> Either ErrorCode Game) -> Handler RepJson
+getGame :: Int -> Handler Game
+getGame gameId = do
+  yesod <- getYesod
+  allGames <- liftIO $ readMVar $ games yesod
+  case Map.lookup gameId allGames of
+    Nothing -> returnError unknownGame
+    Just mvg -> liftIO $ readMVar mvg f
+
+putGame :: Int -> Game -> Handler ()
+putGame gameId g = liftIO $ putMVar
+  yesod <- getYesod
+  allGames <- liftIO $ readMVar $ games yesod
+  case Map.lookup gameId allGames of
+    Nothing -> returnError unknownGame
+    Just mvg -> liftIO $ putMVar mvg g
+
+withGame :: (ToJSON a) => Int -> (Game -> Either ErrorCode (Game, a)) -> Handler RepJson
 withGame gameId f = do
   yesod <- getYesod
   allGames <- liftIO $ readMVar $ games yesod
@@ -43,11 +60,11 @@ withGame gameId f = do
     Just mvg -> liftIO $ updateMVar mvg f
   renderResponse res
 
-updateMVar :: MVar a -> (a -> Either ErrorCode a) -> IO (Either ErrorCode a)
+updateMVar :: MVar a -> (a -> Either ErrorCode (a,b)) -> IO (Either ErrorCode b)
 updateMVar mvar f = modifyMVar mvar (return . f') where
     f' a = case f a of
         Left err -> (a, Left err)
-        Right a' -> (a', Right a')
+        Right (a',b) -> (a', Right b)
         
 renderResponse :: (ToJSON a) => Either ErrorCode a -> Handler RepJson
 renderResponse (Left err) = returnError err

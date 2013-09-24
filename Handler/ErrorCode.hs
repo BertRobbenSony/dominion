@@ -22,9 +22,6 @@ unknownPlayer = ErrorCode notFound404 2 "Unknown player"
 malformedBody :: ErrorCode
 malformedBody = ErrorCode badRequest400 3 "Malformed body"
 
-illegalMove :: Text -> ErrorCode
-illegalMove txt = ErrorCode badRequest400 4 txt
-
 liftErrorCode :: (a -> ErrorCode) -> Either a b -> Either ErrorCode b
 liftErrorCode err (Left txt) = Left $ err txt
 liftErrorCode _ (Right r) = Right r

@@ -25,10 +25,8 @@ postPlayersR = do
 
 getPlayerR :: Int -> Handler RepJson
 getPlayerR pId = do
-  yesod <- getYesod
-  allPlayers <- liftIO $ readMVar $ players yesod
-  let p = allPlayers Map.! pId
-  renderPlayer p
+    p <- getPlayer pId
+    renderPlayer p
 
 getPlayersR :: Handler RepJson
 getPlayersR = do
@@ -36,6 +34,14 @@ getPlayersR = do
   render <- getUrlRender
   allPlayers <- liftIO $ readMVar $ players yesod
   jsonToRepJson $ Import.map (playerToJSON render)(Map.elems allPlayers)
+
+getPlayer :: Int -> Handler Player
+getPlayer pId = do
+  yesod <- getYesod
+  allPlayers <- liftIO $ readMVar $ players yesod
+  case Map.lookup pId allPlayers of
+    Nothing -> returnError unknownPlayer
+    Just mvar -> liftIO $ readMVar mvar
 
 renderPlayer :: Player -> Handler RepJson
 renderPlayer p = do
